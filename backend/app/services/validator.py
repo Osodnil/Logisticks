@@ -33,7 +33,11 @@ def _validate_df(df: pd.DataFrame, schema: Type[BaseModel], id_field: str) -> Di
     warnings: List[Dict[str, Any]] = []
     cleaned_rows: List[Dict[str, Any]] = []
 
-    required = set(schema.__fields__.keys()) - {"lat", "lon", "cep", "weight_kg", "cube_m3", "growth_rate_annual", "area_m2", "rent_monthly", "iptu_annual", "max_capacity_units", "modal", "cost_per_km", "diferencial_aliquota", "incentives"}
+    required = {
+        name
+        for name, field in schema.__fields__.items()
+        if getattr(field, "required", False)
+    }
     missing_cols = required - set(df.columns)
     if missing_cols:
         for c in sorted(missing_cols):

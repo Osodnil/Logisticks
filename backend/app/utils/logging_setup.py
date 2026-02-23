@@ -48,9 +48,21 @@ def setup_logging() -> logging.Logger:
     return logger
 
 
-def log_event(logger: logging.Logger, level: str, message: str, run_id: Optional[str] = None, params: Optional[Dict[str, Any]] = None, masked: bool = False) -> None:
+def log_event(
+    logger: logging.Logger,
+    level: str,
+    message: str,
+    run_id: Optional[str] = None,
+    params: Optional[Dict[str, Any]] = None,
+    masked: bool = False,
+) -> None:
+    processed_params: Dict[str, Any] = params or {}
+
+    if masked and processed_params:
+        processed_params = mask_payload(processed_params)
+
     logger.log(
         getattr(logging, level.upper(), logging.INFO),
         message,
-        extra={"run_id": run_id, "params": params or {}, "masked": masked},
+        extra={"run_id": run_id, "params": processed_params, "masked": masked},
     )

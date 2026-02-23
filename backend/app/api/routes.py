@@ -11,6 +11,7 @@ from uuid import uuid4
 
 import pandas as pd
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Query, Request, UploadFile
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
 from app.services.cost_engine import calc_cost_matrix
@@ -47,6 +48,18 @@ def _save_upload(project_id: str, name: str, upload: UploadFile) -> str:
 
 def _get_role(request: Request) -> str:
     return request.headers.get("X-User-Role", "viewer")
+
+
+def _has_sensitive_columns(project_id: str) -> bool:
+    files = PROJECTS.get(project_id, {})
+    raw_customers = files.get("customers.csv")
+    if not raw_customers:
+        return False
+    try:
+        cols = [c.lower() for c in pd.read_csv(raw_customers, nrows=1).columns]
+    except Exception:
+        return False
+    return ("salary" in cols) or ("internal_cost" in cols)
 
 
 def _run_pipeline(run_id: str, payload: AnalysisRequest, logger) -> None:
@@ -131,8 +144,7 @@ async def upload_tax_rules(request: Request, file: UploadFile = File(...), proje
 async def run_analysis(payload: AnalysisRequest, request: Request, background_tasks: BackgroundTasks, sync: bool = Query(default=False)) -> Dict[str, Any]:
     if _get_role(request) not in {"editor", "admin"}:
         raise HTTPException(status_code=403, detail="role not allowed")
-    files = PROJECTS.get(payload.project_id, {})
-    has_sensitive = any(k for k in files if "salary" in k or "internal_cost" in k)
+    has_sensitive = _has_sensitive_columns(payload.project_id)
     if has_sensitive and not payload.consent_to_use_sensitive_data:
         raise HTTPException(status_code=400, detail="consent_to_use_sensitive_data must be true")
 
@@ -173,6 +185,6 @@ def results(run_id: str) -> Dict[str, Any]:
     return {"run_id": run_id, "status": "completed", "result": RUNS[run_id]["result"], "artifacts": RUNS[run_id]["artifacts"]}
 
 
-@router.get("/metrics")
+@router.get("/metrics", response_class=PlainTextResponse)
 def metrics() -> str:
     return "\n".join([f"uploads_total {METRICS['uploads_total']}", f"runs_total {METRICS['runs_total']}"])

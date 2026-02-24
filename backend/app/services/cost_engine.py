@@ -1,11 +1,15 @@
 """Cost matrix calculation engine."""
 from __future__ import annotations
 
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
 import numpy as np
 import pandas as pd
+import requests
+
+from app.core.config import get_settings
 
 
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -17,8 +21,20 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return float(2 * r * np.arctan2(np.sqrt(a), np.sqrt(1 - a)))
 
 
+@lru_cache(maxsize=20000)
 def route_via_osrm(orig: Tuple[float, float], dest: Tuple[float, float]) -> Dict[str, float]:
-    return {"distance": haversine_km(orig[0], orig[1], dest[0], dest[1]) * 1000, "time": 0.0}
+    """OSRM hook with safe fallback to haversine when unavailable."""
+    settings = get_settings()
+    url = f"{settings.osrm_url}/route/v1/driving/{orig[1]},{orig[0]};{dest[1]},{dest[0]}"
+    try:
+        resp = requests.get(url, params={"overview": "false"}, timeout=2)
+        resp.raise_for_status()
+        payload = resp.json()
+        route = payload["routes"][0]
+        return {"distance": float(route["distance"]), "time": float(route["duration"]) / 3600.0}
+    except Exception:
+        dist_km = haversine_km(orig[0], orig[1], dest[0], dest[1])
+        return {"distance": dist_km * 1000, "time": 0.0}
 
 
 def _mock_uf_from_cep(cep: str | None) -> str:
@@ -33,17 +49,26 @@ def _mock_uf_from_cep(cep: str | None) -> str:
 
 
 def calc_cost_matrix(sites_df: pd.DataFrame, customers_df: pd.DataFrame, transport_params: Dict[str, Any], tax_rules: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, float]]:
+    settings = get_settings()
     road_factor = float(transport_params.get("road_factor", 1.3))
     avg_speed = float(transport_params.get("avg_speed_kmh", 50.0))
     cost_per_km = float(transport_params.get("cost_per_km", 2.2))
     handling = float(transport_params.get("handling_cost_per_order", 3.0))
+    use_osrm = transport_params.get("use_osrm", False) or settings.routing_backend == "osrm"
+
     rows = []
     tax_idx = {str(r["uf"]): float(r["icms_rate"]) for _, r in tax_rules.iterrows()} if not tax_rules.empty else {}
 
     for _, s in sites_df.iterrows():
         for _, c in customers_df.iterrows():
-            dist = haversine_km(float(s["lat"]), float(s["lon"]), float(c["lat"]), float(c["lon"])) * road_factor
-            time_h = dist / max(avg_speed, 1e-9)
+            if use_osrm:
+                route = route_via_osrm((float(s["lat"]), float(s["lon"])), (float(c["lat"]), float(c["lon"])))
+                dist = (float(route["distance"]) / 1000.0) * road_factor
+                time_h = float(route["time"]) if route["time"] > 0 else dist / max(avg_speed, 1e-9)
+            else:
+                dist = haversine_km(float(s["lat"]), float(s["lon"]), float(c["lat"]), float(c["lon"])) * road_factor
+                time_h = dist / max(avg_speed, 1e-9)
+
             transport = dist * cost_per_km + handling * float(c.get("orders_per_month", 0))
             uf = _mock_uf_from_cep(c.get("cep"))
             tax_rate = tax_idx.get(uf, 0.12)

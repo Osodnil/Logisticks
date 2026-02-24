@@ -14,6 +14,17 @@ class Settings(BaseSettings):
     output_dir: str = "example/output"
     mask_sensitive: bool = Field(default=True, env="MASK_SENSITIVE")
 
+    routing_backend: str = Field(default="haversine", env="ROUTING_BACKEND")
+    osrm_url: str = Field(default="http://osrm:5000", env="OSRM_URL")
+    solver_backend: str = Field(default="pulp", env="SOLVER_BACKEND")
+    job_backend: str = Field(default="inline", env="JOB_BACKEND")
+
+    enable_oidc: bool = Field(default=False, env="ENABLE_OIDC")
+    required_scope_upload: str = Field(default="cd:write", env="REQUIRED_SCOPE_UPLOAD")
+    required_scope_run: str = Field(default="cd:run", env="REQUIRED_SCOPE_RUN")
+
+    audit_log_path: str = Field(default="data/audit/events.jsonl", env="AUDIT_LOG_PATH")
+
     class Config:
         env_file = ".env"
 

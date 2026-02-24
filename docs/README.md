@@ -24,7 +24,7 @@ uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 8000
 Upload customers:
 
 ```bash
-curl -X POST "http://localhost:8000/upload/customers" -H "X-User-Role: editor" -F "file=@example/customers_toy.csv"
+curl -X POST "http://localhost:8000/upload/customers" -H "X-User-Role: editor" -H "X-User-Scopes: cd:write,cd:run" -F "file=@example/customers_toy.csv"
 ```
 
 Upload sites:
@@ -48,7 +48,7 @@ curl -X POST "http://localhost:8000/upload/tax_rules" -H "X-User-Role: editor" -
 Rodar análise síncrona:
 
 ```bash
-curl -X POST "http://localhost:8000/run/analysis?sync=true" -H "X-User-Role: editor" -H "Content-Type: application/json" -d '{
+curl -X POST "http://localhost:8000/run/analysis?sync=true" -H "X-User-Role: editor" -H "X-User-Scopes: cd:write,cd:run" -H "Content-Type: application/json" -d '{
   "project_id":"proj_toy",
   "params": {"horizon_months":12, "max_sites":3, "objective_weights":{"cost":0.7,"time":0.3}, "seed":42},
   "consent_to_use_sensitive_data": true
@@ -97,3 +97,14 @@ curl "http://localhost:8000/results/run_123"
 - Heurística alvo < 30 min para 10k clientes / 200 sites.
 - MILP indicado para até ~2k clientes em < 15 min em máquina dev.
 - Recomenda-se particionar forecast/cost matrix e usar Postgres+PostGIS em produção.
+
+
+## Novas variáveis de ambiente (produção)
+
+- `ROUTING_BACKEND`: `haversine|osrm`
+- `OSRM_URL`: endpoint base do OSRM
+- `SOLVER_BACKEND`: `pulp|gurobi|cplex` (hooks já preparados)
+- `JOB_BACKEND`: `inline|celery|rq` (integração futura)
+- `ENABLE_OIDC`: habilita fluxo de autenticação real (stub no momento)
+- `REQUIRED_SCOPE_UPLOAD` e `REQUIRED_SCOPE_RUN`: escopos exigidos por endpoint
+- `AUDIT_LOG_PATH`: caminho do JSONL de trilha de auditoria

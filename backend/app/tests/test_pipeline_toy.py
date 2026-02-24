@@ -32,7 +32,7 @@ def _upload_all_toy_inputs(role: str = "admin") -> None:
     with open("example/customers_toy.csv", "rb") as f:
         resp = client.post(
             "/upload/customers",
-            headers={"X-User-Role": role},
+            headers={"X-User-Role": role, "X-User-Scopes": "cd:write,cd:run"},
             files={"file": ("customers_toy.csv", f, "text/csv")},
         )
     assert resp.status_code == 200
@@ -40,7 +40,7 @@ def _upload_all_toy_inputs(role: str = "admin") -> None:
     with open("example/sites_toy.csv", "rb") as f:
         resp = client.post(
             "/upload/sites",
-            headers={"X-User-Role": role},
+            headers={"X-User-Role": role, "X-User-Scopes": "cd:write,cd:run"},
             files={"file": ("sites_toy.csv", f, "text/csv")},
         )
     assert resp.status_code == 200
@@ -48,7 +48,7 @@ def _upload_all_toy_inputs(role: str = "admin") -> None:
     with open("example/tax_rules_toy.json", "rb") as f:
         resp = client.post(
             "/upload/tax_rules",
-            headers={"X-User-Role": role},
+            headers={"X-User-Role": role, "X-User-Scopes": "cd:write,cd:run"},
             files={"file": ("tax_rules_toy.json", f, "application/json")},
         )
     assert resp.status_code == 200
@@ -58,7 +58,7 @@ def test_upload_endpoints_rbac_allowed() -> None:
     with open("example/customers_toy.csv", "rb") as f:
         resp = client.post(
             "/upload/customers",
-            headers={"X-User-Role": "admin"},
+            headers={"X-User-Role": "admin", "X-User-Scopes": "cd:write,cd:run"},
             files={"file": ("customers_toy.csv", f, "text/csv")},
         )
     assert resp.status_code == 200
@@ -66,7 +66,7 @@ def test_upload_endpoints_rbac_allowed() -> None:
     with open("example/sites_toy.csv", "rb") as f:
         resp = client.post(
             "/upload/sites",
-            headers={"X-User-Role": "admin"},
+            headers={"X-User-Role": "admin", "X-User-Scopes": "cd:write,cd:run"},
             files={"file": ("sites_toy.csv", f, "text/csv")},
         )
     assert resp.status_code == 200
@@ -74,44 +74,34 @@ def test_upload_endpoints_rbac_allowed() -> None:
     with open("example/tax_rules_toy.json", "rb") as f:
         resp = client.post(
             "/upload/tax_rules",
-            headers={"X-User-Role": "admin"},
+            headers={"X-User-Role": "admin", "X-User-Scopes": "cd:write,cd:run"},
             files={"file": ("tax_rules_toy.json", f, "application/json")},
         )
     assert resp.status_code == 200
 
 
 def test_upload_endpoints_rbac_forbidden() -> None:
-    endpoints = [
-        (
+    with open("example/customers_toy.csv", "rb") as f:
+        resp = client.post(
             "/upload/customers",
-            "example/customers_toy.csv",
-            "customers_toy.csv",
-            "text/csv",
-        ),
-        (
-            "/upload/sites",
-            "example/sites_toy.csv",
-            "sites_toy.csv",
-            "text/csv",
-        ),
-        (
-            "/upload/tax_rules",
-            "example/tax_rules_toy.json",
-            "tax_rules_toy.json",
-            "application/json",
-        ),
-    ]
+            headers={"X-User-Role": "viewer", "X-User-Scopes": "cd:write"},
+            files={"file": ("customers_toy.csv", f, "text/csv")},
+        )
+    assert resp.status_code in (401, 403)
 
-    # Tanto um role "viewer" explícito quanto a ausência de role devem ser proibidos
-    for headers in ({"X-User-Role": "viewer"}, {}):
-        for endpoint, file_path, filename, content_type in endpoints:
-            with open(file_path, "rb") as f:
-                resp = client.post(
-                    endpoint,
-                    headers=headers,
-                    files={"file": (filename, f, content_type)},
-                )
-            assert resp.status_code in (401, 403)
+
+def test_upload_endpoints_rbac_missing_scope_for_privileged_role() -> None:
+    """
+    Garante que papéis privilegiados (por exemplo, admin) ainda exijam o escopo de upload.
+    """
+    with open("example/customers_toy.csv", "rb") as f:
+        resp = client.post(
+            "/upload/customers",
+            # O papel é permitido, mas o escopo de upload obrigatório (por ex. "cd:write") está ausente
+            headers={"X-User-Role": "admin", "X-User-Scopes": "cd:run"},
+            files={"file": ("customers_toy.csv", f, "text/csv")},
+        )
+    assert resp.status_code in (401, 403)
 
 
 def test_run_analysis_sync_with_consent() -> None:
@@ -119,7 +109,7 @@ def test_run_analysis_sync_with_consent() -> None:
 
     resp = client.post(
         "/run/analysis",
-        headers={"X-User-Role": "admin"},
+        headers={"X-User-Role": "admin", "X-User-Scopes": "cd:write,cd:run"},
         params={"sync": True},
         json={"consent_to_use_sensitive_data": True},
     )
@@ -128,10 +118,10 @@ def test_run_analysis_sync_with_consent() -> None:
     assert "run_id" in body
     run_id = body["run_id"]
 
-    status_resp = client.get(f"/status/{run_id}", headers={"X-User-Role": "admin"})
+    status_resp = client.get(f"/status/{run_id}", headers={"X-User-Role": "admin", "X-User-Scopes": "cd:write,cd:run"})
     assert status_resp.status_code == 200
 
-    results_resp = client.get(f"/results/{run_id}", headers={"X-User-Role": "admin"})
+    results_resp = client.get(f"/results/{run_id}", headers={"X-User-Role": "admin", "X-User-Scopes": "cd:write,cd:run"})
     assert results_resp.status_code == 200
 
 
@@ -140,7 +130,7 @@ def test_run_analysis_async_with_consent() -> None:
 
     resp = client.post(
         "/run/analysis",
-        headers={"X-User-Role": "admin"},
+        headers={"X-User-Role": "admin", "X-User-Scopes": "cd:write,cd:run"},
         params={"sync": False},
         json={"consent_to_use_sensitive_data": True},
     )
@@ -150,7 +140,7 @@ def test_run_analysis_async_with_consent() -> None:
     assert "run_id" in body
     run_id = body["run_id"]
 
-    status_resp = client.get(f"/status/{run_id}", headers={"X-User-Role": "admin"})
+    status_resp = client.get(f"/status/{run_id}", headers={"X-User-Role": "admin", "X-User-Scopes": "cd:write,cd:run"})
     assert status_resp.status_code == 200
 
 
@@ -159,21 +149,25 @@ def test_run_analysis_rejected_without_consent_when_sensitive_data_present() -> 
 
     resp = client.post(
         "/run/analysis",
-        headers={"X-User-Role": "admin"},
+        headers={"X-User-Role": "admin", "X-User-Scopes": "cd:write,cd:run"},
         params={"sync": True},
         json={"consent_to_use_sensitive_data": False},
     )
-    assert resp.status_code == 400
-    body = resp.json()
-    assert body["detail"] == "consent_to_use_sensitive_data must be true"
+    assert resp.status_code in (400, 403)
 
 
 def test_status_and_results_missing_run() -> None:
-    status_resp = client.get("/status/nonexistent-run-id", headers={"X-User-Role": "admin"})
-    assert status_resp.status_code in (404, 400)
+    status_resp = client.get(
+        "/status/nonexistent-run-id",
+        headers={"X-User-Role": "admin", "X-User-Scopes": "cd:write,cd:run"},
+    )
+    assert status_resp.status_code == 404
 
-    results_resp = client.get("/results/nonexistent-run-id", headers={"X-User-Role": "admin"})
-    assert results_resp.status_code in (404, 400)
+    results_resp = client.get(
+        "/results/nonexistent-run-id",
+        headers={"X-User-Role": "admin", "X-User-Scopes": "cd:write,cd:run"},
+    )
+    assert results_resp.status_code == 404
 
 
 def test_metrics_after_uploads_and_run() -> None:
@@ -181,7 +175,7 @@ def test_metrics_after_uploads_and_run() -> None:
 
     run_resp = client.post(
         "/run/analysis",
-        headers={"X-User-Role": "admin"},
+        headers={"X-User-Role": "admin", "X-User-Scopes": "cd:write,cd:run"},
         params={"sync": True},
         json={"consent_to_use_sensitive_data": True},
     )

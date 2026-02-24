@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Tuple
 import pandas as pd
 import pulp
 
+from app.core.config import get_settings
+
 
 def _build_breakdown(alloc_df: pd.DataFrame, open_sites: pd.DataFrame) -> Dict[str, float]:
     transport = float((alloc_df.get("allocated_qty", 0) * alloc_df.get("unit_cost", 0)).sum()) if not alloc_df.empty else 0.0
@@ -19,7 +21,13 @@ def _build_breakdown(alloc_df: pd.DataFrame, open_sites: pd.DataFrame) -> Dict[s
     }
 
 
+def _external_solver_available(backend: str) -> bool:
+    """Stub for commercial solver probing."""
+    return backend.lower() in {"gurobi", "cplex"}
+
+
 def solve_milp(candidates_df: pd.DataFrame, demand_df: pd.DataFrame, cost_matrix_df: pd.DataFrame, constraints: dict, objective_weights: dict) -> Dict[str, Any]:
+    settings = get_settings()
     customers = demand_df["customer_id"].tolist()
     availability = (
         candidates_df["availability"]
@@ -67,7 +75,14 @@ def solve_milp(candidates_df: pd.DataFrame, demand_df: pd.DataFrame, cost_matrix
 
     model += pulp.lpSum(open_j[j] for j in sites) <= max_open
 
-    status = model.solve(pulp.PULP_CBC_CMD(msg=False, timeLimit=int(constraints.get("time_limit", 15))))
+    solver_backend = str(constraints.get("solver_backend", settings.solver_backend)).lower()
+    if _external_solver_available(solver_backend):
+        # Commercial solver hook: fallback to CBC in this OSS implementation.
+        solver_cmd = pulp.PULP_CBC_CMD(msg=False, timeLimit=int(constraints.get("time_limit", 15)))
+    else:
+        solver_cmd = pulp.PULP_CBC_CMD(msg=False, timeLimit=int(constraints.get("time_limit", 15)))
+
+    status = model.solve(solver_cmd)
     if pulp.LpStatus[status] not in {"Optimal", "Not Solved", "Undefined", "Integer Feasible"}:
         out = fallback_greedy(candidates_df, demand_df, cost_matrix_df, constraints)
         out["solver_status"] = "failed; used_fallback"

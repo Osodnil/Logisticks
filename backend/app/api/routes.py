@@ -14,6 +14,8 @@ from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Query, Requ
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
+from app.core.config import get_settings
+from app.services.audit import append_audit_event
 from app.services.cost_engine import calc_cost_matrix
 from app.services.forecast import forecast_demand
 from app.services.optimizer import solve_milp
@@ -27,6 +29,7 @@ DATA_ROOT.mkdir(exist_ok=True)
 PROJECTS: Dict[str, Dict[str, str]] = {}
 RUNS: Dict[str, Dict[str, Any]] = {}
 METRICS = {"uploads_total": 0, "runs_total": 0}
+SETTINGS = get_settings()
 
 
 class AnalysisRequest(BaseModel):
@@ -48,6 +51,11 @@ def _save_upload(project_id: str, name: str, upload: UploadFile) -> str:
 
 def _get_role(request: Request) -> str:
     return request.headers.get("X-User-Role", "viewer")
+
+
+def _has_scope(request: Request, required_scope: str) -> bool:
+    scopes = {s.strip() for s in request.headers.get("X-User-Scopes", "").split(",") if s.strip()}
+    return required_scope in scopes if required_scope else True
 
 
 def _has_sensitive_columns(project_id: str) -> bool:
@@ -93,6 +101,7 @@ def _run_pipeline(run_id: str, payload: AnalysisRequest, logger) -> None:
 
     artifacts = build_reports(result)
     RUNS[run_id].update({"status": "completed", "result": result, "artifacts": artifacts, "fit_metrics": metrics.to_dict(orient="records")})
+    append_audit_event(SETTINGS.audit_log_path, {"event": "run_completed", "run_id": run_id, "solver_status": result.get("solver_status")})
     log_event(logger, "info", "analysis completed", run_id=run_id)
 
 
@@ -100,6 +109,8 @@ def _run_pipeline(run_id: str, payload: AnalysisRequest, logger) -> None:
 async def upload_customers(request: Request, file: UploadFile = File(...), project_id: str = "proj_toy") -> Dict[str, Any]:
     if _get_role(request) not in {"editor", "admin"}:
         raise HTTPException(status_code=403, detail="role not allowed")
+    if not _has_scope(request, SETTINGS.required_scope_upload):
+        raise HTTPException(status_code=403, detail="missing required scope")
     path = _save_upload(project_id, "customers.csv", file)
     out = validate_customers(path)
     if out["errors"]:
@@ -112,6 +123,8 @@ async def upload_customers(request: Request, file: UploadFile = File(...), proje
 async def upload_sites(request: Request, file: UploadFile = File(...), project_id: str = "proj_toy") -> Dict[str, Any]:
     if _get_role(request) not in {"editor", "admin"}:
         raise HTTPException(status_code=403, detail="role not allowed")
+    if not _has_scope(request, SETTINGS.required_scope_upload):
+        raise HTTPException(status_code=403, detail="missing required scope")
     path = _save_upload(project_id, "sites.csv", file)
     out = validate_sites(path)
     if out["errors"]:
@@ -124,6 +137,8 @@ async def upload_sites(request: Request, file: UploadFile = File(...), project_i
 async def upload_suppliers(request: Request, file: UploadFile = File(...), project_id: str = "proj_toy") -> Dict[str, Any]:
     if _get_role(request) not in {"editor", "admin"}:
         raise HTTPException(status_code=403, detail="role not allowed")
+    if not _has_scope(request, SETTINGS.required_scope_upload):
+        raise HTTPException(status_code=403, detail="missing required scope")
     path = _save_upload(project_id, "suppliers.csv", file)
     out = validate_suppliers(path)
     if out["errors"]:
@@ -136,6 +151,8 @@ async def upload_suppliers(request: Request, file: UploadFile = File(...), proje
 async def upload_tax_rules(request: Request, file: UploadFile = File(...), project_id: str = "proj_toy") -> Dict[str, Any]:
     if _get_role(request) not in {"editor", "admin"}:
         raise HTTPException(status_code=403, detail="role not allowed")
+    if not _has_scope(request, SETTINGS.required_scope_upload):
+        raise HTTPException(status_code=403, detail="missing required scope")
     path = _save_upload(project_id, "tax_rules.json", file)
     out = validate_tax_rules(path)
     if out["errors"]:
@@ -148,6 +165,8 @@ async def upload_tax_rules(request: Request, file: UploadFile = File(...), proje
 async def run_analysis(payload: AnalysisRequest, request: Request, background_tasks: BackgroundTasks, sync: bool = Query(default=False)) -> Dict[str, Any]:
     if _get_role(request) not in {"editor", "admin"}:
         raise HTTPException(status_code=403, detail="role not allowed")
+    if not _has_scope(request, SETTINGS.required_scope_run):
+        raise HTTPException(status_code=403, detail="missing required scope")
     has_sensitive = _has_sensitive_columns(payload.project_id)
     if has_sensitive and not payload.consent_to_use_sensitive_data:
         raise HTTPException(status_code=400, detail="consent_to_use_sensitive_data must be true")
@@ -163,12 +182,13 @@ async def run_analysis(payload: AnalysisRequest, request: Request, background_ta
         "model_versions": {"optimizer": "pulp-2.7.0", "forecast": "prophet|sarimax"},
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+    append_audit_event(SETTINGS.audit_log_path, {"event": "run_created", "run_id": run_id, "project_id": payload.project_id, "params": payload.params})
     logger = request.app.state.logger
     if sync:
         _run_pipeline(run_id, payload, logger)
         return {"run_id": run_id, "status": RUNS[run_id]["status"]}
     background_tasks.add_task(_run_pipeline, run_id, payload, logger)
-    return {"run_id": run_id, "status": "running"}
+    return {"run_id": run_id, "status": "running", "job_backend": SETTINGS.job_backend}
 
 
 @router.get("/status/{run_id}")

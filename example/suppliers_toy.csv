@@ -1,0 +1,3 @@
+supplier_id,lat,lon,lead_time_days,modal,cost_per_km
+SUP_1,-23.500000,-46.620000,3,road,2.3
+SUP_2,-22.950000,-43.210000,4,road,2.1

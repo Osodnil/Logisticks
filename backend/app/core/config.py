@@ -16,6 +16,7 @@ class Settings(BaseSettings):
 
     routing_backend: str = Field(default="haversine", env="ROUTING_BACKEND")
     osrm_url: str = Field(default="http://osrm:5000", env="OSRM_URL")
+    graphhopper_url: str = Field(default="http://graphhopper:8989", env="GRAPHHOPPER_URL")
     solver_backend: str = Field(default="pulp", env="SOLVER_BACKEND")
     job_backend: str = Field(default="inline", env="JOB_BACKEND")
 

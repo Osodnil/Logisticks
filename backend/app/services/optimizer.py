@@ -9,15 +9,26 @@ import pulp
 from app.core.config import get_settings
 
 
-def _build_breakdown(alloc_df: pd.DataFrame, open_sites: pd.DataFrame) -> Dict[str, float]:
+def _build_breakdown(
+    alloc_df: pd.DataFrame,
+    open_sites: pd.DataFrame,
+    objective_weights: Dict[str, float] | None = None,
+) -> Dict[str, float]:
+    objective_weights = objective_weights or {"cost": 0.7, "time": 0.3}
+    wc = float(objective_weights.get("cost", 0.7))
+    wt = float(objective_weights.get("time", 0.3))
+
     transport = float((alloc_df.get("allocated_qty", 0) * alloc_df.get("unit_cost", 0)).sum()) if not alloc_df.empty else 0.0
     fixed = float(open_sites["fixed_cost"].sum()) if not open_sites.empty and "fixed_cost" in open_sites.columns else 0.0
+    time_component = float((alloc_df.get("allocated_qty", 0) * alloc_df.get("delivery_time_h", 0)).sum()) if not alloc_df.empty else 0.0
+
     return {
         "transport": transport,
         "fixed": fixed,
         "tax": float((alloc_df.get("allocated_qty", 0) * alloc_df.get("tax_rate", 0)).sum()) if not alloc_df.empty else 0.0,
         "inventory": 0.0,
-        "time_penalty": float((alloc_df.get("allocated_qty", 0) * alloc_df.get("delivery_time_h", 0) * 0.1).sum()) if not alloc_df.empty else 0.0,
+        "time_penalty": wt * time_component,
+        "objective_value": (wc * transport) + fixed + (wt * time_component),
     }
 
 
@@ -84,7 +95,7 @@ def solve_milp(candidates_df: pd.DataFrame, demand_df: pd.DataFrame, cost_matrix
 
     status = model.solve(solver_cmd)
     if pulp.LpStatus[status] not in {"Optimal", "Not Solved", "Undefined", "Integer Feasible"}:
-        out = fallback_greedy(candidates_df, demand_df, cost_matrix_df, constraints)
+        out = fallback_greedy(candidates_df, demand_df, cost_matrix_df, constraints, objective_weights)
         out["solver_status"] = "failed; used_fallback"
         return out
 
@@ -113,8 +124,8 @@ def solve_milp(candidates_df: pd.DataFrame, demand_df: pd.DataFrame, cost_matrix
             open_rows.append({"site_id": j, "fixed_cost": float(fixed_cost.get(j, 0.0)), "utilization_pct": used / cap if cap else 0.0})
 
     open_df = pd.DataFrame(open_rows)
-    breakdown = _build_breakdown(alloc_df, open_df)
-    total = float(sum(breakdown.values()))
+    breakdown = _build_breakdown(alloc_df, open_df, objective_weights)
+    total = float(breakdown["objective_value"])
     return {
         "open_sites": open_rows,
         "allocations": alloc,
@@ -129,6 +140,7 @@ def fallback_greedy(
     demand_df: pd.DataFrame,
     cost_matrix_df: pd.DataFrame,
     constraints: dict,
+    objective_weights: Dict[str, float] | None = None,
 ) -> Dict[str, Any]:
     """
     Capacity- and coverage-aware greedy fallback.
@@ -136,6 +148,9 @@ def fallback_greedy(
     eps = 1e-9
     max_open = int(constraints.get("max_sites", 1))
     coverage_target = float(constraints.get("coverage", 0.99))
+    objective_weights = objective_weights or {"cost": 0.7, "time": 0.3}
+    wc = float(objective_weights.get("cost", 0.7))
+    wt = float(objective_weights.get("time", 0.3))
 
     avg_cost = cost_matrix_df.groupby("site_id")["total_cost"].mean().to_dict()
     scores: List[Tuple[str, float]] = []
@@ -226,12 +241,18 @@ def fallback_greedy(
         util = 0.0 if init_cap in (0.0, float("inf")) else (init_cap - rem_cap) / init_cap
         open_sites.append({"site_id": sid, "fixed_cost": float(row.get("rent_monthly", 0.0)), "utilization_pct": util})
 
+    fixed_component = float(open_candidates_df.get("rent_monthly", pd.Series(dtype=float)).fillna(0).sum()) if "rent_monthly" in open_candidates_df.columns else 0.0
+    alloc_df = pd.DataFrame(allocations)
+    time_component = float((alloc_df.get("allocated_qty", 0) * alloc_df.get("delivery_time_h", 0)).sum()) if not alloc_df.empty else 0.0
+    objective_value = (wc * total_cost) + fixed_component + (wt * time_component)
+
     objective_breakdown = {
         "transport": total_cost,
-        "fixed": float(open_candidates_df.get("rent_monthly", pd.Series(dtype=float)).fillna(0).sum()) if "rent_monthly" in open_candidates_df.columns else 0.0,
+        "fixed": fixed_component,
         "tax": 0.0,
         "inventory": 0.0,
-        "time_penalty": 0.0,
+        "time_penalty": wt * time_component,
+        "objective_value": objective_value,
         "served_demand_units": served_demand,
         "unserved_demand_units": unserved_demand,
         "achieved_coverage": achieved_coverage,
@@ -241,7 +262,7 @@ def fallback_greedy(
     return {
         "open_sites": open_sites,
         "allocations": allocations,
-        "total_cost": total_cost + objective_breakdown["fixed"],
+        "total_cost": objective_value,
         "objective_breakdown": objective_breakdown,
         "solver_status": "FALLBACK_GREEDY",
     }

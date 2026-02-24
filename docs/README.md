@@ -103,8 +103,12 @@ curl "http://localhost:8000/results/run_123"
 
 - `ROUTING_BACKEND`: `haversine|osrm`
 - `OSRM_URL`: endpoint base do OSRM
+- `GRAPHHOPPER_URL`: endpoint base do GraphHopper
 - `SOLVER_BACKEND`: `pulp|gurobi|cplex` (hooks já preparados)
 - `JOB_BACKEND`: `inline|celery|rq` (integração futura)
 - `ENABLE_OIDC`: habilita fluxo de autenticação real (stub no momento)
 - `REQUIRED_SCOPE_UPLOAD` e `REQUIRED_SCOPE_RUN`: escopos exigidos por endpoint
 - `AUDIT_LOG_PATH`: caminho do JSONL de trilha de auditoria
+
+
+- Observação: o estado de `runs` e `projects` agora é persistido em SQLite por padrão via `DB_URL=sqlite:///data/state.db` (base para migração futura para Postgres).

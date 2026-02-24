@@ -157,11 +157,17 @@ def test_run_analysis_rejected_without_consent_when_sensitive_data_present() -> 
 
 
 def test_status_and_results_missing_run() -> None:
-    status_resp = client.get("/status/nonexistent-run-id", headers={"X-User-Role": "admin", "X-User-Scopes": "cd:write,cd:run"})
-    assert status_resp.status_code in (404, 400)
+    status_resp = client.get(
+        "/status/nonexistent-run-id",
+        headers={"X-User-Role": "admin", "X-User-Scopes": "cd:write,cd:run"},
+    )
+    assert status_resp.status_code == 404
 
-    results_resp = client.get("/results/nonexistent-run-id", headers={"X-User-Role": "admin", "X-User-Scopes": "cd:write,cd:run"})
-    assert results_resp.status_code in (404, 400)
+    results_resp = client.get(
+        "/results/nonexistent-run-id",
+        headers={"X-User-Role": "admin", "X-User-Scopes": "cd:write,cd:run"},
+    )
+    assert results_resp.status_code == 404
 
 
 def test_metrics_after_uploads_and_run() -> None:

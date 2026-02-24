@@ -1,6 +1,6 @@
 # CD Locator
 
-API e pipeline modular para otimização de localização de Centros de Distribuição (CD), com upload, validação, forecast, matriz de custos, otimização MILP (fallback heurístico), cenários e relatórios.
+API e pipeline modulares para otimização de localização de Centros de Distribuição (CD), com upload, validação, forecast, matriz de custos, otimização MILP (fallback heurístico), cenários e relatórios.
 
 ## Executar localmente
 

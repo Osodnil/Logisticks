@@ -1,0 +1,5 @@
+[
+  {"uf": "SP", "operation_type": "sale", "icms_rate": 0.18, "diferencial_aliquota": 0.0, "incentives": []},
+  {"uf": "RJ", "operation_type": "sale", "icms_rate": 0.20, "diferencial_aliquota": 0.0, "incentives": []},
+  {"uf": "PR", "operation_type": "sale", "icms_rate": 0.17, "diferencial_aliquota": 0.0, "incentives": []}
+]

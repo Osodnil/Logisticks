@@ -81,13 +81,37 @@ def test_upload_endpoints_rbac_allowed() -> None:
 
 
 def test_upload_endpoints_rbac_forbidden() -> None:
-    with open("example/customers_toy.csv", "rb") as f:
-        resp = client.post(
+    endpoints = [
+        (
             "/upload/customers",
-            headers={"X-User-Role": "viewer"},
-            files={"file": ("customers_toy.csv", f, "text/csv")},
-        )
-    assert resp.status_code in (401, 403)
+            "example/customers_toy.csv",
+            "customers_toy.csv",
+            "text/csv",
+        ),
+        (
+            "/upload/sites",
+            "example/sites_toy.csv",
+            "sites_toy.csv",
+            "text/csv",
+        ),
+        (
+            "/upload/tax_rules",
+            "example/tax_rules_toy.json",
+            "tax_rules_toy.json",
+            "application/json",
+        ),
+    ]
+
+    # Tanto um role "viewer" explícito quanto a ausência de role devem ser proibidos
+    for headers in ({"X-User-Role": "viewer"}, {}):
+        for endpoint, file_path, filename, content_type in endpoints:
+            with open(file_path, "rb") as f:
+                resp = client.post(
+                    endpoint,
+                    headers=headers,
+                    files={"file": (filename, f, content_type)},
+                )
+            assert resp.status_code in (401, 403)
 
 
 def test_run_analysis_sync_with_consent() -> None:

@@ -1,0 +1,4 @@
+site_id,lat,lon,area_m2,rent_monthly,iptu_annual,availability,max_capacity_units,flood_risk_score,crime_risk_score
+SITE_1,-23.560000,-46.650000,5000,20000,5000,True,20000,0.1,0.2
+SITE_2,-22.900000,-43.200000,8000,18000,4500,True,30000,0.05,0.15
+SITE_3,-25.430000,-49.270000,3000,12000,3000,True,15000,0.2,0.25

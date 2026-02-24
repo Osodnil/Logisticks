@@ -19,8 +19,11 @@ class Settings(BaseSettings):
     graphhopper_url: str = Field(default="http://graphhopper:8989", env="GRAPHHOPPER_URL")
     solver_backend: str = Field(default="pulp", env="SOLVER_BACKEND")
     job_backend: str = Field(default="inline", env="JOB_BACKEND")
+    max_run_retries: int = Field(default=2, env="MAX_RUN_RETRIES")
+    enable_dlq: bool = Field(default=True, env="ENABLE_DLQ")
 
     enable_oidc: bool = Field(default=False, env="ENABLE_OIDC")
+    oidc_issuer: str = Field(default="", env="OIDC_ISSUER")
     required_scope_upload: str = Field(default="cd:write", env="REQUIRED_SCOPE_UPLOAD")
     required_scope_run: str = Field(default="cd:run", env="REQUIRED_SCOPE_RUN")
 

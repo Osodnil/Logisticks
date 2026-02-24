@@ -18,5 +18,5 @@
 2. Migrar estado de `PROJECTS`/`RUNS` para Postgres + PostGIS.
 3. Implementar execução real com Gurobi/CPLEX (licença e parâmetros de tuning).
 4. Integrar OIDC/SSO real e RBAC por escopos persistidos.
-5. Adicionar worker distribuído com retries, DLQ e métricas de fila.
-6. Versionar datasets/modelos e trilha de auditoria com assinaturas/hash.
+5. Adicionar worker distribuído real (Celery/RQ) com DLQ persistente.
+6. Versionar datasets/modelos com catálogo central e assinatura criptográfica gerenciada (KMS).

@@ -1,6 +1,7 @@
 """API routes for upload and analysis."""
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import shutil
@@ -29,7 +30,8 @@ DATA_ROOT = Path("data")
 DATA_ROOT.mkdir(exist_ok=True)
 PROJECTS: Dict[str, Dict[str, str]] = {}
 RUNS: Dict[str, Dict[str, Any]] = {}
-METRICS = {"uploads_total": 0, "runs_total": 0}
+METRICS = {"uploads_total": 0, "runs_total": 0, "retries_total": 0, "failed_runs_total": 0}
+DLQ: List[Dict[str, Any]] = []
 SETTINGS = get_settings()
 STORE = StateStore(SETTINGS.db_url)
 
@@ -56,8 +58,30 @@ def _get_role(request: Request) -> str:
     return request.headers.get("X-User-Role", "viewer")
 
 
+def _extract_oidc_scopes(request: Request) -> set[str]:
+    """Stub OIDC scope extractor from JWT payload without signature verification."""
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return set()
+    token = auth.split(" ", 1)[1]
+    parts = token.split(".")
+    if len(parts) < 2:
+        return set()
+    try:
+        padded = parts[1] + "=" * (-len(parts[1]) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded.encode("utf-8")).decode("utf-8"))
+    except Exception:
+        return set()
+    scope = payload.get("scope", "")
+    if isinstance(scope, str):
+        return {s.strip() for s in scope.split() if s.strip()}
+    return set()
+
+
 def _has_scope(request: Request, required_scope: str) -> bool:
     scopes = {s.strip() for s in request.headers.get("X-User-Scopes", "").split(",") if s.strip()}
+    if SETTINGS.enable_oidc:
+        scopes = scopes.union(_extract_oidc_scopes(request))
     return required_scope in scopes if required_scope else True
 
 
@@ -118,6 +142,7 @@ def _run_pipeline_with_retries(run_id: str, payload: AnalysisRequest, logger, re
         except Exception as exc:  # defensive retry hook for future worker queues
             attempts += 1
             RUNS[run_id]["status"] = "retrying" if attempts <= retries else "failed"
+            METRICS["retries_total"] += 1
             RUNS[run_id]["error"] = str(exc)
             STORE.save_run(run_id, RUNS[run_id])
             append_audit_event(
@@ -125,6 +150,9 @@ def _run_pipeline_with_retries(run_id: str, payload: AnalysisRequest, logger, re
                 {"event": "run_retry", "run_id": run_id, "attempt": attempts, "error": str(exc)},
             )
             if attempts > retries:
+                METRICS["failed_runs_total"] += 1
+                if SETTINGS.enable_dlq:
+                    DLQ.append({"run_id": run_id, "error": str(exc), "timestamp": datetime.now(timezone.utc).isoformat()})
                 return
 
 
@@ -213,9 +241,9 @@ async def run_analysis(payload: AnalysisRequest, request: Request, background_ta
     STORE.save_run(run_id, RUNS[run_id])
     logger = request.app.state.logger
     if sync:
-        _run_pipeline_with_retries(run_id, payload, logger)
+        _run_pipeline_with_retries(run_id, payload, logger, retries=SETTINGS.max_run_retries)
         return {"run_id": run_id, "status": RUNS[run_id]["status"]}
-    background_tasks.add_task(_run_pipeline_with_retries, run_id, payload, logger)
+    background_tasks.add_task(_run_pipeline_with_retries, run_id, payload, logger, SETTINGS.max_run_retries)
     return {"run_id": run_id, "status": "running", "job_backend": SETTINGS.job_backend}
 
 
@@ -245,4 +273,17 @@ def results(run_id: str) -> Dict[str, Any]:
 
 @router.get("/metrics", response_class=PlainTextResponse)
 def metrics() -> str:
-    return "\n".join([f"uploads_total {METRICS['uploads_total']}", f"runs_total {METRICS['runs_total']}"])
+    return "\n".join([
+        f"uploads_total {METRICS['uploads_total']}",
+        f"runs_total {METRICS['runs_total']}",
+        f"retries_total {METRICS['retries_total']}",
+        f"failed_runs_total {METRICS['failed_runs_total']}",
+        f"dlq_size {len(DLQ)}",
+    ])
+
+
+@router.get("/dlq")
+def dlq(request: Request) -> Dict[str, Any]:
+    if _get_role(request) != "admin":
+        raise HTTPException(status_code=403, detail="role not allowed")
+    return {"items": DLQ}

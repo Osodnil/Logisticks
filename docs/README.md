@@ -119,3 +119,9 @@ curl "http://localhost:8000/results/run_123"
 - `transport_params.use_route_cache=true|false`: habilita cache persistente O-D (SQLite) no cálculo de custos.
 - `transport_params.use_graphhopper=true|false`: força uso do hook GraphHopper.
 - Execução de análise agora possui wrapper interno de retries para facilitar migração para Celery/RQ.
+
+
+- `MAX_RUN_RETRIES`: quantidade de tentativas para execução de análise.
+- `ENABLE_DLQ`: habilita fila morta em memória para falhas de execução.
+- Se `ENABLE_OIDC=true`, scopes também podem vir de `Authorization: Bearer <jwt>` (stub sem validação de assinatura para desenvolvimento).
+- Endpoint `GET /dlq` (admin) exibe itens falhos da execução.

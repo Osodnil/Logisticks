@@ -9,6 +9,8 @@
 5. **Base para scheduler**: `JOB_BACKEND` exposto na resposta async para integração com Celery/RQ.
 6. **Persistência de estado**: `projects`/`runs` persistidos em SQLite (camada `StateStore`) para transição futura a Postgres.
 7. **Hook GraphHopper**: integração com fallback seguro no engine de custos.
+8. **Cache persistente O-D**: tabela `od_cache` no `StateStore` com leitura/gravação no cost engine.
+9. **Retries básicos de execução**: wrapper `_run_pipeline_with_retries` pronto para workers distribuídos.
 
 ## Próximos incrementos
 

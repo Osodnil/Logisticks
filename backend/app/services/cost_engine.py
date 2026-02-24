@@ -10,7 +10,10 @@ import pandas as pd
 import requests
 
 from app.core.config import get_settings
+from app.services.state_store import StateStore
 
+
+STORE = StateStore()
 
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     r = 6371
@@ -70,6 +73,12 @@ def _mock_uf_from_cep(cep: str | None) -> str:
     return "SP"
 
 
+
+
+def _route_cache_key(site_id: str, customer_id: str, backend: str, road_factor: float) -> str:
+    return f"{backend}:{site_id}:{customer_id}:{round(road_factor, 4)}"
+
+
 def calc_cost_matrix(sites_df: pd.DataFrame, customers_df: pd.DataFrame, transport_params: Dict[str, Any], tax_rules: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, float]]:
     settings = get_settings()
     road_factor = float(transport_params.get("road_factor", 1.3))
@@ -78,23 +87,33 @@ def calc_cost_matrix(sites_df: pd.DataFrame, customers_df: pd.DataFrame, transpo
     handling = float(transport_params.get("handling_cost_per_order", 3.0))
     use_osrm = transport_params.get("use_osrm", False) or settings.routing_backend == "osrm"
     use_graphhopper = transport_params.get("use_graphhopper", False) or settings.routing_backend == "graphhopper"
+    use_route_cache = bool(transport_params.get("use_route_cache", True))
 
     rows = []
     tax_idx = {str(r["uf"]): float(r["icms_rate"]) for _, r in tax_rules.iterrows()} if not tax_rules.empty else {}
 
     for _, s in sites_df.iterrows():
         for _, c in customers_df.iterrows():
-            if use_osrm:
-                route = route_via_osrm((float(s["lat"]), float(s["lon"])), (float(c["lat"]), float(c["lon"])))
-                dist = (float(route["distance"]) / 1000.0) * road_factor
-                time_h = float(route["time"]) if route["time"] > 0 else dist / max(avg_speed, 1e-9)
-            elif use_graphhopper:
-                route = route_via_graphhopper((float(s["lat"]), float(s["lon"])), (float(c["lat"]), float(c["lon"])))
-                dist = (float(route["distance"]) / 1000.0) * road_factor
-                time_h = float(route["time"]) if route["time"] > 0 else dist / max(avg_speed, 1e-9)
+            backend = "osrm" if use_osrm else ("graphhopper" if use_graphhopper else "haversine")
+            route_key = _route_cache_key(str(s["site_id"]), str(c["customer_id"]), backend, road_factor)
+            cached = STORE.get_od_cache(route_key) if use_route_cache else {}
+            if cached:
+                dist = float(cached["distance_km"])
+                time_h = float(cached["time_h"])
             else:
-                dist = haversine_km(float(s["lat"]), float(s["lon"]), float(c["lat"]), float(c["lon"])) * road_factor
-                time_h = dist / max(avg_speed, 1e-9)
+                if use_osrm:
+                    route = route_via_osrm((float(s["lat"]), float(s["lon"])), (float(c["lat"]), float(c["lon"])))
+                    dist = (float(route["distance"]) / 1000.0) * road_factor
+                    time_h = float(route["time"]) if route["time"] > 0 else dist / max(avg_speed, 1e-9)
+                elif use_graphhopper:
+                    route = route_via_graphhopper((float(s["lat"]), float(s["lon"])), (float(c["lat"]), float(c["lon"])))
+                    dist = (float(route["distance"]) / 1000.0) * road_factor
+                    time_h = float(route["time"]) if route["time"] > 0 else dist / max(avg_speed, 1e-9)
+                else:
+                    dist = haversine_km(float(s["lat"]), float(s["lon"]), float(c["lat"]), float(c["lon"])) * road_factor
+                    time_h = dist / max(avg_speed, 1e-9)
+                if use_route_cache:
+                    STORE.save_od_cache(route_key, backend, float(dist), float(time_h))
 
             transport = dist * cost_per_km + handling * float(c.get("orders_per_month", 0))
             uf = _mock_uf_from_cep(c.get("cep"))

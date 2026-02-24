@@ -15,6 +15,16 @@ from app.models.schemas import Customer, Site, Supplier, TaxRule
 CEP_RE = re.compile(r"^\d{5}-?\d{3}$")
 
 
+def _coerce_nan(value: Any) -> Any:
+    try:
+        is_na = pd.isna(value)
+        if isinstance(is_na, (bool,)):  # scalar path
+            return None if is_na else value
+    except Exception:
+        return value
+    return value
+
+
 def mock_geocode_from_cep(cep: str) -> Tuple[float, float]:
     base = sum(ord(c) for c in cep if c.isdigit())
     lat = -33 + (base % 1000) / 100
@@ -47,7 +57,7 @@ def _validate_df(df: pd.DataFrame, schema: Type[BaseModel], id_field: str) -> Di
     seen_ids = set()
     seen_coords: List[Tuple[float, float]] = []
     for idx, row in df.iterrows():
-        payload = {k: (None if pd.isna(v) else v) for k, v in row.to_dict().items()}
+        payload = {k: _coerce_nan(v) for k, v in row.to_dict().items()}
         if "cep" in payload and payload.get("cep") is not None and not CEP_RE.match(str(payload["cep"]).strip('"')):
             errors.append({"line": int(idx + 2), "field": "cep", "message": f"invalid cep '{payload['cep']}'", "severity": "error"})
         if payload.get("lat") is None and payload.get("lon") is None and payload.get("cep"):

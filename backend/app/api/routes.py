@@ -109,6 +109,25 @@ def _run_pipeline(run_id: str, payload: AnalysisRequest, logger) -> None:
     log_event(logger, "info", "analysis completed", run_id=run_id)
 
 
+def _run_pipeline_with_retries(run_id: str, payload: AnalysisRequest, logger, retries: int = 2) -> None:
+    attempts = 0
+    while attempts <= retries:
+        try:
+            _run_pipeline(run_id, payload, logger)
+            return
+        except Exception as exc:  # defensive retry hook for future worker queues
+            attempts += 1
+            RUNS[run_id]["status"] = "retrying" if attempts <= retries else "failed"
+            RUNS[run_id]["error"] = str(exc)
+            STORE.save_run(run_id, RUNS[run_id])
+            append_audit_event(
+                SETTINGS.audit_log_path,
+                {"event": "run_retry", "run_id": run_id, "attempt": attempts, "error": str(exc)},
+            )
+            if attempts > retries:
+                return
+
+
 @router.post("/upload/customers")
 async def upload_customers(request: Request, file: UploadFile = File(...), project_id: str = "proj_toy") -> Dict[str, Any]:
     if _get_role(request) not in {"editor", "admin"}:
@@ -194,9 +213,9 @@ async def run_analysis(payload: AnalysisRequest, request: Request, background_ta
     STORE.save_run(run_id, RUNS[run_id])
     logger = request.app.state.logger
     if sync:
-        _run_pipeline(run_id, payload, logger)
+        _run_pipeline_with_retries(run_id, payload, logger)
         return {"run_id": run_id, "status": RUNS[run_id]["status"]}
-    background_tasks.add_task(_run_pipeline, run_id, payload, logger)
+    background_tasks.add_task(_run_pipeline_with_retries, run_id, payload, logger)
     return {"run_id": run_id, "status": "running", "job_backend": SETTINGS.job_backend}
 
 

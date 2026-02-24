@@ -49,6 +49,17 @@ class StateStore:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS od_cache (
+                    route_key TEXT PRIMARY KEY,
+                    backend TEXT NOT NULL,
+                    distance_km REAL NOT NULL,
+                    time_h REAL NOT NULL,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
 
     def save_project(self, project_id: str, files: Dict[str, str]) -> None:
         with self._connect() as conn:
@@ -89,3 +100,29 @@ class StateStore:
         if not row:
             return {}
         return json.loads(row[0])
+
+
+    def save_od_cache(self, route_key: str, backend: str, distance_km: float, time_h: float) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO od_cache(route_key, backend, distance_km, time_h, updated_at)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(route_key) DO UPDATE SET
+                    backend=excluded.backend,
+                    distance_km=excluded.distance_km,
+                    time_h=excluded.time_h,
+                    updated_at=CURRENT_TIMESTAMP
+                """,
+                (route_key, backend, distance_km, time_h),
+            )
+
+    def get_od_cache(self, route_key: str) -> Dict[str, Any]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT backend, distance_km, time_h FROM od_cache WHERE route_key=?",
+                (route_key,),
+            ).fetchone()
+        if not row:
+            return {}
+        return {"backend": row[0], "distance_km": float(row[1]), "time_h": float(row[2])}

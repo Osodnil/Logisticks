@@ -83,7 +83,7 @@ curl "http://localhost:8000/results/run_123"
 
 - MILP com PuLP/CBC.
 - Se falhar por tempo/status, usa `fallback_greedy` e retorna `solver_status="failed; used_fallback"`.
-- Gurobi/CPLEX são opcionais e podem ser configurados via variáveis de ambiente e integração futura.
+- Gurobi/CPLEX são opcionais e podem ser configurados via variáveis de ambiente, com integração futura.
 
 ## Segurança e governança
 

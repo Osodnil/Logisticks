@@ -37,6 +37,28 @@ def route_via_osrm(orig: Tuple[float, float], dest: Tuple[float, float]) -> Dict
         return {"distance": dist_km * 1000, "time": 0.0}
 
 
+
+
+@lru_cache(maxsize=20000)
+def route_via_graphhopper(orig: Tuple[float, float], dest: Tuple[float, float]) -> Dict[str, float]:
+    """GraphHopper hook with safe fallback to haversine when unavailable."""
+    settings = get_settings()
+    url = f"{settings.graphhopper_url}/route"
+    try:
+        resp = requests.get(
+            url,
+            params={"point": [f"{orig[0]},{orig[1]}", f"{dest[0]},{dest[1]}"], "profile": "car"},
+            timeout=2,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+        path = payload["paths"][0]
+        return {"distance": float(path["distance"]), "time": float(path["time"]) / 3600000.0}
+    except Exception:
+        dist_km = haversine_km(orig[0], orig[1], dest[0], dest[1])
+        return {"distance": dist_km * 1000, "time": 0.0}
+
+
 def _mock_uf_from_cep(cep: str | None) -> str:
     if not cep:
         return "SP"
@@ -55,6 +77,7 @@ def calc_cost_matrix(sites_df: pd.DataFrame, customers_df: pd.DataFrame, transpo
     cost_per_km = float(transport_params.get("cost_per_km", 2.2))
     handling = float(transport_params.get("handling_cost_per_order", 3.0))
     use_osrm = transport_params.get("use_osrm", False) or settings.routing_backend == "osrm"
+    use_graphhopper = transport_params.get("use_graphhopper", False) or settings.routing_backend == "graphhopper"
 
     rows = []
     tax_idx = {str(r["uf"]): float(r["icms_rate"]) for _, r in tax_rules.iterrows()} if not tax_rules.empty else {}
@@ -63,6 +86,10 @@ def calc_cost_matrix(sites_df: pd.DataFrame, customers_df: pd.DataFrame, transpo
         for _, c in customers_df.iterrows():
             if use_osrm:
                 route = route_via_osrm((float(s["lat"]), float(s["lon"])), (float(c["lat"]), float(c["lon"])))
+                dist = (float(route["distance"]) / 1000.0) * road_factor
+                time_h = float(route["time"]) if route["time"] > 0 else dist / max(avg_speed, 1e-9)
+            elif use_graphhopper:
+                route = route_via_graphhopper((float(s["lat"]), float(s["lon"])), (float(c["lat"]), float(c["lon"])))
                 dist = (float(route["distance"]) / 1000.0) * road_factor
                 time_h = float(route["time"]) if route["time"] > 0 else dist / max(avg_speed, 1e-9)
             else:

@@ -20,6 +20,7 @@ from app.services.cost_engine import calc_cost_matrix
 from app.services.forecast import forecast_demand
 from app.services.optimizer import solve_milp
 from app.services.report_builder import build_reports
+from app.services.state_store import StateStore
 from app.services.validator import validate_customers, validate_sites, validate_suppliers, validate_tax_rules
 from app.utils.logging_setup import log_event
 
@@ -30,6 +31,7 @@ PROJECTS: Dict[str, Dict[str, str]] = {}
 RUNS: Dict[str, Dict[str, Any]] = {}
 METRICS = {"uploads_total": 0, "runs_total": 0}
 SETTINGS = get_settings()
+STORE = StateStore(SETTINGS.db_url)
 
 
 class AnalysisRequest(BaseModel):
@@ -45,6 +47,7 @@ def _save_upload(project_id: str, name: str, upload: UploadFile) -> str:
     with out.open("wb") as fh:
         shutil.copyfileobj(upload.file, fh)
     PROJECTS.setdefault(project_id, {})[name] = str(out)
+    STORE.save_project(project_id, PROJECTS[project_id])
     METRICS["uploads_total"] += 1
     return str(out)
 
@@ -76,7 +79,7 @@ def _has_sensitive_columns(project_id: str) -> bool:
 
 def _run_pipeline(run_id: str, payload: AnalysisRequest, logger) -> None:
     RUNS[run_id]["status"] = "running"
-    project_files = PROJECTS.get(payload.project_id)
+    project_files = PROJECTS.get(payload.project_id) or STORE.get_project(payload.project_id)
     if not project_files:
         RUNS[run_id]["status"] = "failed"
         RUNS[run_id]["error"] = "project not found"
@@ -101,6 +104,7 @@ def _run_pipeline(run_id: str, payload: AnalysisRequest, logger) -> None:
 
     artifacts = build_reports(result)
     RUNS[run_id].update({"status": "completed", "result": result, "artifacts": artifacts, "fit_metrics": metrics.to_dict(orient="records")})
+    STORE.save_run(run_id, RUNS[run_id])
     append_audit_event(SETTINGS.audit_log_path, {"event": "run_completed", "run_id": run_id, "solver_status": result.get("solver_status")})
     log_event(logger, "info", "analysis completed", run_id=run_id)
 
@@ -116,6 +120,7 @@ async def upload_customers(request: Request, file: UploadFile = File(...), proje
     if out["errors"]:
         raise HTTPException(status_code=400, detail=out)
     PROJECTS.setdefault(project_id, {})["customers_cleaned.parquet"] = out["cleaned_dataframe"]
+    STORE.save_project(project_id, PROJECTS[project_id])
     return {"status": "ok", "errors": out["errors"], "warnings": out["warnings"], "project_id": project_id}
 
 
@@ -130,6 +135,7 @@ async def upload_sites(request: Request, file: UploadFile = File(...), project_i
     if out["errors"]:
         raise HTTPException(status_code=400, detail=out)
     PROJECTS.setdefault(project_id, {})["sites_cleaned.parquet"] = out["cleaned_dataframe"]
+    STORE.save_project(project_id, PROJECTS[project_id])
     return {"status": "ok", "errors": out["errors"], "warnings": out["warnings"], "project_id": project_id}
 
 
@@ -144,6 +150,7 @@ async def upload_suppliers(request: Request, file: UploadFile = File(...), proje
     if out["errors"]:
         raise HTTPException(status_code=400, detail=out)
     PROJECTS.setdefault(project_id, {})["suppliers_cleaned.parquet"] = out["cleaned_dataframe"]
+    STORE.save_project(project_id, PROJECTS[project_id])
     return {"status": "ok", "errors": out["errors"], "warnings": out["warnings"], "project_id": project_id}
 
 
@@ -158,6 +165,7 @@ async def upload_tax_rules(request: Request, file: UploadFile = File(...), proje
     if out["errors"]:
         raise HTTPException(status_code=400, detail=out)
     PROJECTS.setdefault(project_id, {})["tax_rules_cleaned.parquet"] = out["cleaned_dataframe"]
+    STORE.save_project(project_id, PROJECTS[project_id])
     return {"status": "ok", "errors": out["errors"], "warnings": out["warnings"], "project_id": project_id}
 
 
@@ -183,6 +191,7 @@ async def run_analysis(payload: AnalysisRequest, request: Request, background_ta
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     append_audit_event(SETTINGS.audit_log_path, {"event": "run_created", "run_id": run_id, "project_id": payload.project_id, "params": payload.params})
+    STORE.save_run(run_id, RUNS[run_id])
     logger = request.app.state.logger
     if sync:
         _run_pipeline(run_id, payload, logger)
@@ -194,7 +203,10 @@ async def run_analysis(payload: AnalysisRequest, request: Request, background_ta
 @router.get("/status/{run_id}")
 def status(run_id: str) -> Dict[str, Any]:
     if run_id not in RUNS:
-        raise HTTPException(status_code=404, detail="run not found")
+        restored = STORE.get_run(run_id)
+        if not restored:
+            raise HTTPException(status_code=404, detail="run not found")
+        RUNS[run_id] = restored
     r = RUNS[run_id].copy()
     r.pop("result", None)
     return r
@@ -203,7 +215,10 @@ def status(run_id: str) -> Dict[str, Any]:
 @router.get("/results/{run_id}")
 def results(run_id: str) -> Dict[str, Any]:
     if run_id not in RUNS:
-        raise HTTPException(status_code=404, detail="run not found")
+        restored = STORE.get_run(run_id)
+        if not restored:
+            raise HTTPException(status_code=404, detail="run not found")
+        RUNS[run_id] = restored
     if RUNS[run_id].get("status") != "completed":
         return {"run_id": run_id, "status": RUNS[run_id].get("status")}
     return {"run_id": run_id, "status": "completed", "result": RUNS[run_id]["result"], "artifacts": RUNS[run_id]["artifacts"]}

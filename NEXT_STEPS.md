@@ -7,6 +7,8 @@
 3. **Autorização por escopo (stub)**: header `X-User-Scopes` com validações para upload e execução.
 4. **Governança/auditoria**: trilha de auditoria JSONL em `data/audit/events.jsonl` para eventos de criação/conclusão de run.
 5. **Base para scheduler**: `JOB_BACKEND` exposto na resposta async para integração com Celery/RQ.
+6. **Persistência de estado**: `projects`/`runs` persistidos em SQLite (camada `StateStore`) para transição futura a Postgres.
+7. **Hook GraphHopper**: integração com fallback seguro no engine de custos.
 
 ## Próximos incrementos
 

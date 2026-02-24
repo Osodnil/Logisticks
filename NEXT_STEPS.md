@@ -1,0 +1,18 @@
+# NEXT STEPS (produção)
+
+## Implementado nesta iteração (fundação)
+
+1. **Roteamento real (OSRM) com cache**: hook `route_via_osrm` com `lru_cache` e fallback seguro para haversine.
+2. **Feature flag de solver comercial**: `SOLVER_BACKEND` e ponto de extensão para Gurobi/CPLEX no optimizer.
+3. **Autorização por escopo (stub)**: header `X-User-Scopes` com validações para upload e execução.
+4. **Governança/auditoria**: trilha de auditoria JSONL em `data/audit/events.jsonl` para eventos de criação/conclusão de run.
+5. **Base para scheduler**: `JOB_BACKEND` exposto na resposta async para integração com Celery/RQ.
+
+## Próximos incrementos
+
+1. Integrar GraphHopper e cache persistente de matriz O-D (Redis/Postgres).
+2. Migrar estado de `PROJECTS`/`RUNS` para Postgres + PostGIS.
+3. Implementar execução real com Gurobi/CPLEX (licença e parâmetros de tuning).
+4. Integrar OIDC/SSO real e RBAC por escopos persistidos.
+5. Adicionar worker distribuído com retries, DLQ e métricas de fila.
+6. Versionar datasets/modelos e trilha de auditoria com assinaturas/hash.

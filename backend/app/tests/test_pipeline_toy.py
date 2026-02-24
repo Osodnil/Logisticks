@@ -163,7 +163,9 @@ def test_run_analysis_rejected_without_consent_when_sensitive_data_present() -> 
         params={"sync": True},
         json={"consent_to_use_sensitive_data": False},
     )
-    assert resp.status_code in (400, 403)
+    assert resp.status_code == 400
+    body = resp.json()
+    assert body["detail"] == "consent_to_use_sensitive_data must be true"
 
 
 def test_status_and_results_missing_run() -> None:

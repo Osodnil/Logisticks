@@ -90,6 +90,20 @@ def test_upload_endpoints_rbac_forbidden() -> None:
     assert resp.status_code in (401, 403)
 
 
+def test_upload_endpoints_rbac_missing_scope_for_privileged_role() -> None:
+    """
+    Garante que papéis privilegiados (por exemplo, admin) ainda exijam o escopo de upload.
+    """
+    with open("example/customers_toy.csv", "rb") as f:
+        resp = client.post(
+            "/upload/customers",
+            # O papel é permitido, mas o escopo de upload obrigatório (por ex. "cd:write") está ausente
+            headers={"X-User-Role": "admin", "X-User-Scopes": "cd:run"},
+            files={"file": ("customers_toy.csv", f, "text/csv")},
+        )
+    assert resp.status_code in (401, 403)
+
+
 def test_run_analysis_sync_with_consent() -> None:
     _upload_all_toy_inputs(role="admin")
 
